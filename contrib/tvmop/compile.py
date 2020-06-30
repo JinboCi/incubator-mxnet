@@ -30,6 +30,7 @@ import subprocess
 from tvmop.opdef import __OP_DEF__
 from tvmop.space import ConfigSpaces, ConfigSpace
 from tvm.autotvm.measure.measure_methods import set_cuda_target_arch
+from tvm import te
 
 logging.basicConfig(level=logging.INFO)
 
@@ -132,7 +133,7 @@ if __name__ == "__main__":
     for operator_def in __OP_DEF__:
         for sch, args, name in operator_def.invoke_all():
             name = operator_def.get_op_name(name, args)
-            if tvm.module.enabled(get_target(operator_def.target)):
+            if tvm.runtime.module.enabled(get_target(operator_def.target)):
                 func_list = func_list_llvm if operator_def.target == "cpu" else func_list_cuda
                 func_lower = tvm.lower(sch, args,
                                        name=name,
@@ -148,6 +149,7 @@ if __name__ == "__main__":
         else:
             logging.info('Cuda arch {} set for compiling TVM operator kernels.'.format(cuda_arch))
             set_cuda_target_arch(cuda_arch)
+    import pdb; pdb.set_trace()
     func_binary = tvm.build(lowered_funcs, name="tvmop")
     # we create libtvmop.o first, which gives us chance to link tvm_runtime together with the libtvmop
     # to allow mxnet find external helper functions in libtvm_runtime
