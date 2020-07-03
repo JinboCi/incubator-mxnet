@@ -29,6 +29,7 @@ import sys
 import subprocess
 from tvmop.opdef import __OP_DEF__
 from tvmop.space import ConfigSpaces, ConfigSpace
+from tvm.ir.transform import PassContext
 from tvm.autotvm.measure.measure_methods import set_cuda_target_arch
 from tvm import te
 
@@ -126,30 +127,42 @@ if __name__ == "__main__":
                         help="Path which stores the config file")
     arguments = parser.parse_args()
 
-    func_list_llvm = []
-    func_list_cuda = []
+    func_dict_llvm = {}
+    func_dict_cuda = {}
 
     # TODO: attach instruction features to the library, e.g., avx-512, etc.
     for operator_def in __OP_DEF__:
         for sch, args, name in operator_def.invoke_all():
             name = operator_def.get_op_name(name, args)
             if tvm.runtime.module.enabled(get_target(operator_def.target)):
-                func_list = func_list_llvm if operator_def.target == "cpu" else func_list_cuda
-                func_lower = tvm.lower(sch, args,
-                                       name=name,
-                                       binds=operator_def.get_binds(args))
-                func_list.append(func_lower)
+                func_dict = func_dict_llvm if operator_def.target == "cpu" else func_dict_cuda
+                pass_ctx = PassContext.current()
+                sch = sch.normalize()
+                bounds = te.schedule.InferBound(sch)
+                stmt = te.schedule.ScheduleOps(sch, bounds)
 
-    lowered_funcs = {get_target("cpu"): func_list_llvm}
-    if len(func_list_cuda) > 0:
-        lowered_funcs[get_target("cuda")] = func_list_cuda
+                compact = te.schedule.VerifyCompactBuffer(stmt)
+                binds, arg_list = tvm.driver.build_module.get_binds(args, compact)
+
+                stmt = te.schedule.SchedulePostProcRewriteForTensorCore(stmt, sch, binds)
+                func = te.schedule.SchedulePostProcToPrimFunc(arg_list, stmt, binds)
+
+                func = func.with_attr("global_symbol", name)
+                if pass_ctx.config.get("tir.noalias", True):
+                    func = func.with_attr("tir.noalias", True)
+                func_dict[name] = func
+    import pdb; pdb.set_trace()
+    ir_module_llvm = tvm.IRModule(func_dict_llvm)
+    lowered_funcs = {get_target("cpu"): ir_module_llvm}
+    if (not func_dict_cuda) == False:
+        ir_module_cuda = tvm.IRModule(func_dict_cuda)
+        lowered_funcs[get_target("cuda")] = ir_module_cuda
         cuda_arch = get_cuda_arch(arguments.cuda_arch)
         if cuda_arch is None:
             logging.info('No cuda arch specified. TVM will try to detect it from the build platform.')
         else:
             logging.info('Cuda arch {} set for compiling TVM operator kernels.'.format(cuda_arch))
             set_cuda_target_arch(cuda_arch)
-    import pdb; pdb.set_trace()
     func_binary = tvm.build(lowered_funcs, name="tvmop")
     # we create libtvmop.o first, which gives us chance to link tvm_runtime together with the libtvmop
     # to allow mxnet find external helper functions in libtvm_runtime
