@@ -151,7 +151,6 @@ if __name__ == "__main__":
                 if pass_ctx.config.get("tir.noalias", True):
                     func = func.with_attr("tir.noalias", True)
                 func_dict[name] = func
-    import pdb; pdb.set_trace()
     ir_module_llvm = tvm.IRModule(func_dict_llvm)
     lowered_funcs = {get_target("cpu"): ir_module_llvm}
     if (not func_dict_cuda) == False:
