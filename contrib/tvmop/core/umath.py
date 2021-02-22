@@ -17,6 +17,7 @@
 
 import tvm
 from .. import defop, AllTypes
+from tvm import te
 
 _bin_logic_op_map = {
     'equal': lambda a, b, *idx: a[idx] == b[idx],
@@ -25,18 +26,18 @@ _bin_logic_op_map = {
     'less': lambda a, b, *idx: a[idx] < b[idx],
     'greater_equal': lambda a, b, *idx: a[idx] >= b[idx],
     'less_equal': lambda a, b, *idx: a[idx] <= b[idx],
-    'logical_and': lambda a, b, *idx: tvm.all(a[idx] != 0, b[idx] != 0),
-    'logical_or': lambda a, b, *idx: tvm.any(a[idx] != 0, b[idx] != 0),
-    'logical_xor': lambda a, b, *idx: tvm.all(tvm.any(a[idx] != 0, b[idx] != 0), tvm.any(a[idx] == 0, b[idx] == 0)),
+    'logical_and': lambda a, b, *idx: te.all(a[idx] != 0, b[idx] != 0),
+    'logical_or': lambda a, b, *idx: te.any(a[idx] != 0, b[idx] != 0),
+    'logical_xor': lambda a, b, *idx: te.all(te.any(a[idx] != 0, b[idx] != 0), te.any(a[idx] == 0, b[idx] == 0)),
 }
 
 
 def _compute_binary_logic(op, dtype, ndim):
-    a = tvm.placeholder([tvm.size_var() for _ in range(ndim)], dtype=dtype, name='a')
-    b = tvm.placeholder([tvm.size_var() for _ in range(ndim)], dtype=dtype, name='b')
-    c = tvm.compute([tvm.size_var() for _ in range(ndim)],
+    a = te.placeholder([te.size_var() for _ in range(ndim)], dtype=dtype, name='a')
+    b = te.placeholder([te.size_var() for _ in range(ndim)], dtype=dtype, name='b')
+    c = te.compute([te.size_var() for _ in range(ndim)],
                     lambda *idx: _bin_logic_op_map[op](a, b, *idx), name='c')
-    s = tvm.create_schedule(c.op)
+    s = te.create_schedule(c.op)
     return s, a, b, c
 
 
@@ -70,8 +71,8 @@ def _binary_logic_gpu(compute_func, op, itype, ndim):
     axes = [axis for axis in c.op.axis]
     fused = s[c].fuse(*axes)
     bx, tx = s[c].split(fused, factor=64)
-    s[c].bind(bx, tvm.thread_axis('blockIdx.x'))
-    s[c].bind(tx, tvm.thread_axis('threadIdx.x'))
+    s[c].bind(bx, te.thread_axis('blockIdx.x'))
+    s[c].bind(tx, te.thread_axis('threadIdx.x'))
     return s, [a, b, c]
 
 
@@ -90,18 +91,18 @@ _bin_scalar_logic_op_map = {
     'less_scalar': lambda a, b, *idx: a[idx].astype(b.dtype) < b,
     'greater_equal_scalar': lambda a, b, *idx: a[idx].astype(b.dtype) >= b,
     'less_equal_scalar': lambda a, b, *idx: a[idx].astype(b.dtype) <= b,
-    'logical_and_scalar': lambda a, b, *idx: tvm.all(a[idx].astype(b.dtype) != 0 , b != 0),
-    'logical_or_scalar': lambda a, b, *idx: tvm.any(a[idx].astype(b.dtype) != 0, b != 0),
-    'logical_xor_scalar': lambda a, b, *idx: tvm.all(tvm.any(a[idx].astype(b.dtype) != 0, b != 0), tvm.any(a[idx].astype(b.dtype) == 0, b == 0)),
+    'logical_and_scalar': lambda a, b, *idx: te.all(a[idx].astype(b.dtype) != 0 , b != 0),
+    'logical_or_scalar': lambda a, b, *idx: te.any(a[idx].astype(b.dtype) != 0, b != 0),
+    'logical_xor_scalar': lambda a, b, *idx: te.all(te.any(a[idx].astype(b.dtype) != 0, b != 0), te.any(a[idx].astype(b.dtype) == 0, b == 0)),
 }
 
 
 def _compute_binary_scalar_logic(op, dtype, ndim):
-    a = tvm.placeholder([tvm.size_var() for _ in range(ndim)], name='a', dtype=dtype)
-    b = tvm.var('b', dtype='float64')
-    c = tvm.compute([tvm.size_var() for _ in range(ndim)],
+    a = te.placeholder([te.size_var() for _ in range(ndim)], name='a', dtype=dtype)
+    b = te.var('b', dtype='float64')
+    c = te.compute([te.size_var() for _ in range(ndim)],
                     lambda *idx: _bin_scalar_logic_op_map[op](a, b, *idx), name='c')
-    s = tvm.create_schedule(c.op)
+    s = te.create_schedule(c.op)
     return s, a, b, c
 
 

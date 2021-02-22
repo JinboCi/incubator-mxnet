@@ -20,14 +20,15 @@ import tvm
 from tvm import autotvm
 from .. import defop, AllTypes
 from .. import assign_by_req, reduce_axes
+from tvm import te
 
 def compute_dot(A, B):
     M = A.shape[0]
     K = A.shape[1]
     N = B.shape[1]
-    k = tvm.reduce_axis((0, K), 'k')
-    C = tvm.compute((M, N),
-                    lambda x, y: tvm.sum(A[x, k] * B[k, y], axis=k),
+    k = te.reduce_axis((0, K), 'k')
+    C = te.compute((M, N),
+                    lambda x, y: te.sum(A[x, k] * B[k, y], axis=k),
                     name='C')
     return C
 
@@ -37,13 +38,13 @@ def dot(dtype, fallback):
     cfg = autotvm.get_config()
     cfg.define_knob("bn", [64] if fallback else [64, 32])
     cfg.define_knob("factor", [4] if fallback else [4])
-    M = tvm.size_var("M")
-    K = tvm.size_var("K")
-    N = tvm.size_var("N")
-    A = tvm.placeholder((M, K), name='A', dtype=dtype)
-    B = tvm.placeholder((K, N), name='B', dtype=dtype)
+    M = te.size_var("M")
+    K = te.size_var("K")
+    N = te.size_var("N")
+    A = te.placeholder((M, K), name='A', dtype=dtype)
+    B = te.placeholder((K, N), name='B', dtype=dtype)
     C = compute_dot(A, B)
-    s = tvm.create_schedule(C.op)
+    s = te.create_schedule(C.op)
     # Blocking by loop tiling
     xo, yo, xi, yi = s[C].tile(C.op.axis[0], C.op.axis[1], cfg["bn"].val, cfg["bn"].val)
     k, = s[C].op.reduce_axis
